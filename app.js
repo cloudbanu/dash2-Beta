@@ -1426,6 +1426,7 @@ function loginUser(name, role) {
         subscribeToWorks();
         subscribeToNotifications();
         subscribeToQuickTasks();
+        pollForNotifications();
         
         renderWorks();
         updateStats();
@@ -1482,39 +1483,107 @@ function subscribeToWorks() {
 }
 
 function subscribeToNotifications() {
-    supabase
-        .channel('notifications-changes')
-        .on('postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'notifications' },
+    const notificationChannel = supabase.channel('notifications-realtime-changes', {
+        config: {
+            broadcast: { self: true }
+        }
+    });
+    
+    notificationChannel
+        .on(
+            'postgres_changes',
+            { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'notifications'
+            },
             (payload) => {
-                console.log('📬 Notification received:', payload);
+                console.log('📬 NOTIFICATION EVENT RECEIVED:', payload);
                 const notification = payload.new;
                 
                 console.log('Checking notification for:', {
                     recipient: notification.recipient_user,
                     currentUser: currentUser,
                     senderSession: notification.session_id,
-                    currentSession: sessionId
+                    currentSession: sessionId,
+                    match: notification.recipient_user === currentUser,
+                    differentSession: notification.session_id !== sessionId
                 });
                 
+                // Show notification if it's for current user and from different session
                 if (notification.recipient_user === currentUser && 
                     notification.session_id !== sessionId) {
-                    console.log('🔔 Showing browser notification');
+                    console.log('🔔 ✅ SHOWING BROWSER NOTIFICATION');
                     showBrowserNotification(notification.title, {
                         body: notification.message,
                         icon: memberAvatars[notification.sender_user] || 'logo.png',
                         tag: notification.notification_type
                     });
                 } else {
-                    console.log('❌ Notification filtered out:', {
-                        reason: notification.recipient_user !== currentUser ? 'Not for current user' : 'Same session'
-                    });
+                    console.log('❌ Notification filtered out');
+                    if (notification.recipient_user !== currentUser) {
+                        console.log('   Reason: Not for current user');
+                    }
+                    if (notification.session_id === sessionId) {
+                        console.log('   Reason: Same session (sender)');
+                    }
                 }
             }
         )
         .subscribe((status) => {
-            console.log('Notification subscription status:', status);
+            console.log('🔔 Notification subscription status:', status);
+            if (status === 'SUBSCRIBED') {
+                console.log('✅ Successfully subscribed to notifications table changes');
+            } else if (status === 'CHANNEL_ERROR') {
+                console.error('❌ Error subscribing to notifications');
+            }
         });
+}
+
+// Fallback: Poll for new notifications every 5 seconds
+function pollForNotifications() {
+    setInterval(async () => {
+        try {
+            const { data, error } = await supabase
+                .from('notifications')
+                .select('*')
+                .eq('recipient_user', currentUser)
+                .eq('read', false)
+                .order('created_at', { ascending: false })
+                .limit(1);
+            
+            if (error) throw error;
+            
+            if (data && data.length > 0) {
+                const notification = data[0];
+                
+                // Check if we've already shown this notification
+                const notifKey = `notif_${notification.id}`;
+                if (!sessionStorage.getItem(notifKey)) {
+                    console.log('📬 New notification found via polling:', notification);
+                    
+                    if (notification.session_id !== sessionId) {
+                        showBrowserNotification(notification.title, {
+                            body: notification.message,
+                            icon: memberAvatars[notification.sender_user] || 'logo.png',
+                            tag: notification.notification_type
+                        });
+                    }
+                    
+                    // Mark as shown
+                    sessionStorage.setItem(notifKey, 'shown');
+                    
+                    // Mark as read in database
+                    await supabase
+                        .from('notifications')
+                        .update({ read: true })
+                        .eq('id', notification.id);
+                }
+            }
+        } catch (error) {
+            console.error('Error polling notifications:', error);
+        }
+    }, 5000); // Check every 5 seconds
 }
 
 

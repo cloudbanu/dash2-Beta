@@ -1,11 +1,11 @@
 {
-  "name": "Work Manager Pro",
-  "short_name": "WorkManager",
-  "start_url": ".",
+  "name": "Ace Creative Work Management",
+  "short_name": "Ace Creative",
+  "start_url": "/dash2-Beta/",
   "display": "standalone",
-  "background_color": "#1f2937",
-  "theme_color": "#1f2937",
-  "description": "A modern work management app with real-time sync and notifications.",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "description": "Work Management System for Ace Creative",
   "icons": [
     {
       "src": "logo.png",
