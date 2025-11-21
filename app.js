@@ -842,7 +842,11 @@ function setupFormHandlers() {
                 showTab('works');
                 showNotification('✅ Work added successfully!', 'success');
                 
+                console.log('📝 Work created, checking if notification needed');
+                console.log('Assigned to:', assignedStaff, 'Created by:', currentUser);
+
                 if (assignedStaff !== currentUser) {
+                    console.log('✉️ Creating notification for:', assignedStaff);
                     await createNotification(
                         assignedStaff,
                         currentUser,
@@ -852,7 +856,11 @@ function setupFormHandlers() {
                         `"${workData.work_name}" has been assigned to you`,
                         sessionId
                     );
+                } else {
+                    console.log('ℹ️ No notification needed - self assignment');
                 }
+
+
                 
             } catch (error) {
                 console.error('Error adding work:', error);
@@ -1029,10 +1037,23 @@ async function createNotification(recipientUser, senderUser, workId, type, title
         if (error) throw error;
         
         console.log('✅ Notification created successfully');
+        console.log('📤 Notification details:', { recipientUser, senderUser, title, message });
+        
+        // If recipient is currently logged in (different session), show browser notification
+        if (recipientUser === currentUser && senderSessionId !== sessionId) {
+            console.log('🔔 Showing notification to current user');
+            showBrowserNotification(title, {
+                body: message,
+                icon: memberAvatars[senderUser] || 'logo.png',
+                tag: type
+            });
+        }
+        
     } catch (error) {
         console.error('Error creating notification:', error);
     }
 }
+
 
 // == DROPDOWN MANAGEMENT ==
 function setupDropdownHandlers() {
@@ -1309,10 +1330,15 @@ async function requestNotificationPermission() {
 
 
 function showBrowserNotification(title, options = {}) {
+    console.log('🔔 showBrowserNotification called:', { title, options });
+    console.log('Notifications enabled?', notificationsEnabled);
+    console.log('Notification permission:', Notification.permission);
+    
     if (!notificationsEnabled || !('Notification' in window)) {
-        console.log('Notifications not enabled');
+        console.log('❌ Notifications not enabled or not supported');
         return;
     }
+
     
     try {
         const notification = new Notification(title, {
@@ -1461,19 +1487,36 @@ function subscribeToNotifications() {
         .on('postgres_changes',
             { event: 'INSERT', schema: 'public', table: 'notifications' },
             (payload) => {
+                console.log('📬 Notification received:', payload);
                 const notification = payload.new;
+                
+                console.log('Checking notification for:', {
+                    recipient: notification.recipient_user,
+                    currentUser: currentUser,
+                    senderSession: notification.session_id,
+                    currentSession: sessionId
+                });
+                
                 if (notification.recipient_user === currentUser && 
                     notification.session_id !== sessionId) {
+                    console.log('🔔 Showing browser notification');
                     showBrowserNotification(notification.title, {
                         body: notification.message,
-                        icon: memberAvatars[notification.sender_user],
+                        icon: memberAvatars[notification.sender_user] || 'logo.png',
                         tag: notification.notification_type
+                    });
+                } else {
+                    console.log('❌ Notification filtered out:', {
+                        reason: notification.recipient_user !== currentUser ? 'Not for current user' : 'Same session'
                     });
                 }
             }
         )
-        .subscribe();
+        .subscribe((status) => {
+            console.log('Notification subscription status:', status);
+        });
 }
+
 
 function subscribeToQuickTasks() {
     supabase
