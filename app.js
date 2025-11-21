@@ -1427,6 +1427,7 @@ function loginUser(name, role) {
         subscribeToNotifications();
         subscribeToQuickTasks();
         pollForNotifications();
+        startNotificationPolling();
         
         renderWorks();
         updateStats();
@@ -1584,6 +1585,60 @@ function pollForNotifications() {
             console.error('Error polling notifications:', error);
         }
     }, 5000); // Check every 5 seconds
+}
+
+
+// Fallback: Poll for new notifications every 3 seconds
+let lastCheckedNotificationId = null;
+
+async function pollForNotifications() {
+    try {
+        const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .eq('recipient_user', currentUser)
+            .neq('session_id', sessionId)
+            .order('created_at', { ascending: false })
+            .limit(5);
+        
+        if (error) throw error;
+        
+        if (data && data.length > 0) {
+            data.forEach(notification => {
+                // Check if this is a new notification we haven't shown yet
+                const notifKey = `notif_shown_${notification.id}`;
+                const alreadyShown = sessionStorage.getItem(notifKey);
+                
+                if (!alreadyShown) {
+                    console.log('📬 NEW notification found via polling:', notification);
+                    
+                    showBrowserNotification(notification.title, {
+                        body: notification.message,
+                        icon: memberAvatars[notification.sender_user] || 'logo.png',
+                        tag: notification.notification_type
+                    });
+                    
+                    // Mark as shown in this session
+                    sessionStorage.setItem(notifKey, 'true');
+                }
+            });
+        }
+    } catch (error) {
+        console.error('Error polling notifications:', error);
+    }
+}
+
+// Start polling
+function startNotificationPolling() {
+    console.log('🔄 Starting notification polling...');
+    
+    // Poll immediately
+    pollForNotifications();
+    
+    // Then poll every 3 seconds
+    setInterval(() => {
+        pollForNotifications();
+    }, 3000);
 }
 
 
@@ -2395,3 +2450,7 @@ window.handleEditImageUpload = handleEditImageUpload;
 window.removeImage = removeImage;
 window.viewImage = viewImage;
 window.closeImageViewer = closeImageViewer;
+
+
+window.pollForNotifications = pollForNotifications;
+window.startNotificationPolling = startNotificationPolling;
